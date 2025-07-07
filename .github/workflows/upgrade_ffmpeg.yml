@@ -1,0 +1,64 @@
+name: Upgrade FFmpeg
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_version:
+        description: 'The FFmpeg version to upgrade to (e.g., 7.2)'
+        required: true
+
+jobs:
+  upgrade-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r20b
+
+      - name: Run FFmpeg Upgrade Script
+        id: upgrade
+        run: |
+          # The NDK path is set by the setup-ndk action
+          echo "NDK_PATH=${ANDROID_NDK_HOME}"
+          # Update the ENV file with the correct NDK path
+          sed -i "s|^NDK=.*|NDK=${ANDROID_NDK_HOME}|" ffmpeg/JNI/ENV
+          # Run the upgrade script with the version from the input
+          ./upgrade_ffmpeg.sh ${{ github.event.inputs.ffmpeg_version }}
+
+      - name: Upload Build Logs
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-logs
+          path: ffmpeg/JNI/rebuild-ffmpeg.log
+
+      - name: Create GitHub Release
+        if: success()
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ffmpeg-${{ github.event.inputs.ffmpeg_version }}
+          name: FFmpeg ${{ github.event.inputs.ffmpeg_version }} for Android
+          body: |
+            This release contains the compiled FFmpeg libraries for Android, version ${{ github.event.inputs.ffmpeg_version }}.
+            Built for MX Player using the automated GitHub Actions workflow.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets
+        if: success()
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ffmpeg/JNI/libs.zip
+          asset_name: ffmpeg-android-libs-${{ github.event.inputs.ffmpeg_version }}.zip
+          asset_content_type: application/zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
